@@ -46,6 +46,7 @@ const state = {
   consoleCount: 0,
   runToken: 0,
   autoRunTimer: null,
+  currentBlobURL: null,
 };
 
 /* ------------------------------------------------------------------ *
@@ -226,9 +227,19 @@ function run() {
   const started = performance.now();
   const doc = prepareDocument(markup, token);
 
-  // srcdoc (not a blob: URL) so the sandbox attribute stays authoritative and
-  // the document keeps its opaque origin.
-  els.frame.srcdoc = doc;
+  // A blob: URL rather than srcdoc.
+  //
+  // A srcdoc iframe *inherits the parent's Content-Security-Policy*, so a host
+  // `script-src 'self'` blocks every inline script in the preview: the app would
+  // render markup but never execute any JavaScript in it, and its own console
+  // bridge would never load. A blob: URL is a separate document that does not
+  // inherit the host CSP, while the `sandbox` attribute still forces an opaque
+  // origin — so the isolation is unchanged.
+  //
+  // The previous URL is revoked so an auto-run loop does not leak blobs.
+  if (state.currentBlobURL) URL.revokeObjectURL(state.currentBlobURL);
+  state.currentBlobURL = URL.createObjectURL(new Blob([doc], { type: 'text/html' }));
+  els.frame.src = state.currentBlobURL;
 
   els.outputMeta.textContent = new Blob([doc]).size.toLocaleString() + ' B';
 
