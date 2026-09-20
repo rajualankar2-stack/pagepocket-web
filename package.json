@@ -1,0 +1,15 @@
+{
+  "name": "pagepocket-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Paste HTML and run it instantly in a sandboxed frame.",
+  "type": "module",
+  "scripts": {
+    "dev": "python3 -m http.server 8899",
+    "test": "node test/test.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  },
+  "license": "MIT"
+}

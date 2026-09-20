@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PagePocket — paste HTML, run it instantly</title>
+<meta name="description" content="Paste HTML and run it instantly in a sandboxed frame. Everything stays in your browser — nothing is uploaded.">
+<link rel="stylesheet" href="css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%235b57f0'/><text y='68' x='50' font-size='52' text-anchor='middle' fill='white' font-family='monospace'>&lt;/&gt;</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">&lt;/&gt;</span>
+    <span class="brand-name">PagePocket</span>
+    <span class="brand-tag">paste HTML · run it</span>
+  </div>
+
+  <div class="topbar-actions">
+    <button id="btn-samples" class="btn ghost" type="button">Samples</button>
+    <button id="btn-open" class="btn ghost" type="button">Open file</button>
+    <button id="btn-download" class="btn ghost" type="button">Download</button>
+    <button id="btn-share" class="btn ghost" type="button">Share link</button>
+    <button id="btn-run" class="btn primary" type="button">Run <kbd>⌘↵</kbd></button>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- Editor -->
+  <section class="pane editor-pane" aria-label="HTML editor">
+    <div class="pane-head">
+      <span class="pane-title">HTML</span>
+      <span class="pane-meta" id="editor-meta">0 B</span>
+    </div>
+    <div class="editor-wrap">
+      <div class="gutter" id="gutter" aria-hidden="true"></div>
+      <textarea id="editor" spellcheck="false" autocomplete="off" autocapitalize="off"
+        aria-label="HTML source"
+        placeholder="Paste HTML here, then press Run.
+
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+  &lt;body&gt;
+    &lt;h1&gt;Hello&lt;/h1&gt;
+  &lt;/body&gt;
+&lt;/html&gt;"></textarea>
+    </div>
+    <div class="pane-foot">
+      <label class="switch">
+        <input type="checkbox" id="opt-console" checked>
+        <span>Capture console</span>
+      </label>
+      <label class="switch">
+        <input type="checkbox" id="opt-wrap" checked>
+        <span>Wrap fragments</span>
+      </label>
+      <label class="switch">
+        <input type="checkbox" id="opt-autorun">
+        <span>Auto-run</span>
+      </label>
+    </div>
+  </section>
+
+  <!-- Output -->
+  <section class="pane output-pane" aria-label="Rendered output">
+    <div class="pane-head">
+      <span class="pane-title">Output</span>
+      <span class="status" id="status" data-state="idle">idle</span>
+      <span class="pane-meta" id="output-meta"></span>
+      <button id="btn-reload" class="btn tiny ghost" type="button" title="Re-run">⟳</button>
+      <button id="btn-immersive" class="btn tiny ghost" type="button" title="Full screen">⛶</button>
+    </div>
+
+    <div class="frame-wrap" id="frame-wrap">
+      <!--
+        The sandbox is the entire security model of this app.
+
+        `allow-scripts` without `allow-same-origin` gives the document a unique,
+        opaque origin: it cannot read this page's DOM, cookies or storage, and it
+        cannot reach the parent except through postMessage. `allow-forms` and
+        `allow-modals` keep ordinary pages working. Deliberately withheld:
+        allow-same-origin (would defeat the isolation), allow-top-navigation,
+        allow-popups-to-escape-sandbox, allow-downloads.
+      -->
+      <iframe
+        id="preview"
+        title="Rendered output"
+        sandbox="allow-scripts allow-forms allow-modals allow-pointer-lock"
+        referrerpolicy="no-referrer"
+        csp="default-src * data: blob: 'unsafe-inline' 'unsafe-eval'"
+        src="about:blank"></iframe>
+      <div class="frame-empty" id="frame-empty">
+        <p>Your page renders here.</p>
+        <p class="muted">Paste HTML on the left and press <kbd>⌘↵</kbd>.</p>
+      </div>
+    </div>
+
+    <div class="console" id="console-panel">
+      <div class="pane-head console-head">
+        <span class="pane-title">Console</span>
+        <span class="pane-meta" id="console-count">0</span>
+        <button id="btn-clear-console" class="btn tiny ghost" type="button">Clear</button>
+      </div>
+      <div class="console-body" id="console-body">
+        <div class="console-empty">Messages from the page appear here.</div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- Samples -->
+<dialog id="samples-dialog" class="dialog">
+  <div class="dialog-head">
+    <h2>Samples</h2>
+    <button class="btn tiny ghost" data-close type="button">✕</button>
+  </div>
+  <ul class="sample-list" id="sample-list"></ul>
+</dialog>
+
+<!-- Share -->
+<dialog id="share-dialog" class="dialog">
+  <div class="dialog-head">
+    <h2>Share link</h2>
+    <button class="btn tiny ghost" data-close type="button">✕</button>
+  </div>
+  <p class="muted small">
+    The markup is compressed and stored in the URL fragment. A fragment is never
+    sent to a server, so the page stays private — but long documents make long
+    links, and anyone with the link can read it.
+  </p>
+  <div class="share-row">
+    <input id="share-url" class="share-input" readonly>
+    <button id="btn-copy-share" class="btn primary" type="button">Copy</button>
+  </div>
+  <p class="muted small" id="share-info"></p>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="js/app.js" type="module"></script>
+</body>
+</html>
