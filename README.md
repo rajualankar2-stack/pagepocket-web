@@ -77,11 +77,40 @@ node test/test.mjs
 
 ## Deploying to Vercel
 
+This project is set up to deploy under the **same Vercel team** as the other
+projects on this machine (`team_cYwhvlK1rtXWMKQFA3B7WYUd` — the one
+`Yuvaplannextech` uses), so it sits alongside them rather than under a personal
+scope.
+
+### One command
+
 ```bash
-npx vercel deploy --prod
+./deploy.sh
 ```
 
-`vercel.json` adds the security headers Vercel does not set by default:
+It checks the CLI is installed, runs `vercel login` if you are not signed in
+(the browser step is the only part that cannot be automated), links the project
+to the right team, and deploys to production.
+
+### Or manually
+
+```bash
+vercel login
+vercel link --project pagepocket-web --scope team_cYwhvlK1rtXWMKQFA3B7WYUd
+vercel deploy --prod --scope team_cYwhvlK1rtXWMKQFA3B7WYUd
+```
+
+### Or with no CLI at all
+
+Import the repo from the dashboard and pick the same team:
+
+<https://vercel.com/new/clone?repository-url=https://github.com/rajualankar2-stack/pagepocket-web>
+
+There is no build step — Vercel serves the static files as-is.
+
+### Security headers
+
+`vercel.json` adds the headers Vercel does not set by default:
 
 - `Content-Security-Policy` — `default-src 'self'`, no remote scripts
 - `X-Content-Type-Options: nosniff`
@@ -92,6 +121,10 @@ npx vercel deploy --prod
 
 The app has no server-side component, so it deploys as pure static files.
 
+Note the host CSP applies to *this* app's own pages. It does not constrain the
+sandboxed preview frame, which is governed by the `sandbox` attribute instead —
+see the security model above.
+
 ---
 
 ## Structure
@@ -101,6 +134,7 @@ index.html        markup and the sandboxed iframe
 css/app.css       styling
 js/app.js         editor, runner, console bridge, share encoding, samples
 test/test.mjs     Playwright suite
+deploy.sh         one-command deploy to the right Vercel team
 vercel.json       static hosting + security headers
 ```
 
