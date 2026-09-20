@@ -71,7 +71,27 @@ npm install -D playwright && npx playwright install chromium
 node test/test.mjs
 ```
 
-18 checks covering the sandbox attribute, hostile-document isolation, console capture, rendering, fragment wrapping, the share round-trip, and that no external requests are made.
+24 checks covering the sandbox attribute, hostile-document isolation, console
+capture, rendering, fragment wrapping, the share round-trip, and that no external
+requests are made.
+
+It runs against `test/csp-server.mjs`, which serves the app with the CSP **read
+from `vercel.json`** — not a plain static server. That matters: a CSP-free server
+hides the app's worst failure mode, where the preview inherits a policy that
+blocks every pasted script. That bug shipped once. Two of the checks now assert
+inline scripts execute and that the served policy matches the config, so it
+cannot ship again.
+
+```bash
+node test/csp-server.mjs &
+node test/test.mjs
+```
+
+Point it at a deployment to check the live site:
+
+```bash
+BASE_URL=https://pagepocket-web.vercel.app/ node test/test.mjs
+```
 
 ---
 
@@ -112,7 +132,11 @@ There is no build step — Vercel serves the static files as-is.
 
 `vercel.json` adds the headers Vercel does not set by default:
 
-- `Content-Security-Policy` — `default-src 'self'`, no remote scripts
+- `Content-Security-Policy` — `default-src 'self'`, no remote scripts, `connect-src 'self'`.
+  `script-src` includes `'unsafe-inline'`, which is **required, not optional**: the
+  previewed document inherits this policy, and pasted HTML is overwhelmingly inline
+  `<script>`. Without it the app renders markup and executes none of its JavaScript.
+  Verified that no frame delivery mechanism (`srcdoc`, `blob:`, `data:`) avoids this.
 - `X-Content-Type-Options: nosniff`
 - `Referrer-Policy: no-referrer`
 - `X-Frame-Options: DENY` — this app is not embeddable

@@ -27,50 +27,40 @@ check('allow-top-navigation not set', !sandbox.includes('allow-top-navigation'))
 check('allow-popups not set', !sandbox.includes('allow-popups'));
 
 console.log('\n--- 3. a hostile document cannot reach the parent ---');
-// Build the probe without a literal closing script tag in this file.
-const S = String.fromCharCode(60) + '/script' + String.fromCharCode(62);
-const hostile = [
-  '<html><body>',
-  '<' + 'script>',
-  'var r = {};',
-  'try { var t = parent.document.title; r.parentDom = "LEAKED:" + t; } catch (e) { r.parentDom = "blocked:" + e.name; }',
-  'try { localStorage.setItem("x","1"); r.storage = "WRITABLE"; } catch (e) { r.storage = "blocked:" + e.name; }',
-  'try { r.origin = String(location.origin); } catch (e) { r.origin = "blocked"; }',
-  'try { parent.localStorage.getItem("x"); r.hostStorage = "REACHED"; } catch (e) { r.hostStorage = "blocked"; }',
-  'parent.postMessage({ __probe: true, results: r }, "*");',
-  S,
-  '</body></html>'
-].join('\n');
-await page.evaluate((m) => {
+// Read the frame's capabilities through the app's own console bridge rather
+// than a hand-rolled postMessage probe: the bridge is already installed inside
+// the sandbox and is not subject to the race a one-shot probe has against the
+// frame's load event.
+await page.evaluate(() => {
   const ed = document.getElementById('editor');
-  ed.value = m;
+  ed.value = '<html><body><scr' + 'ipt>'
+    + 'try { var t = parent.document.title; console.log("parentDom=LEAKED:" + t); }'
+    + 'catch (e) { console.log("parentDom=blocked:" + e.name); }'
+    + 'try { parent.localStorage.getItem("x"); console.log("hostStorage=REACHED"); }'
+    + 'catch (e) { console.log("hostStorage=blocked:" + e.name); }'
+    + 'try { localStorage.setItem("x","1"); console.log("ownStorage=WRITABLE"); }'
+    + 'catch (e) { console.log("ownStorage=blocked:" + e.name); }'
+    + 'try { parent.document.cookie; console.log("hostCookie=REACHED"); }'
+    + 'catch (e) { console.log("hostCookie=blocked:" + e.name); }'
+    + 'try { top.location = "https://evil.example"; console.log("topNav=ALLOWED"); }'
+    + 'catch (e) { console.log("topNav=blocked:" + e.name); }'
+    + '</scr' + 'ipt></body></html>';
   ed.dispatchEvent(new Event('input', { bubbles: true }));
-}, hostile);
+});
 await page.click('#btn-run');
-const probe = await page.evaluate(() => new Promise(res => {
-  const h = (e) => { if (e.data && e.data.__probe) { window.removeEventListener('message', h); res(e.data.results); } };
-  window.addEventListener('message', h);
-  setTimeout(() => res(null), 8000);
-}));
-if (!probe) {
-  const dbg = await page.evaluate(() => ({
-    srcdocLen: (document.getElementById('preview').srcdoc || '').length,
-    srcdocTail: (document.getElementById('preview').srcdoc || '').slice(-260),
-    status: document.getElementById('status').textContent,
-  }));
-  console.log('    DEBUG srcdocLen=' + dbg.srcdocLen + ' status=' + dbg.status);
-  console.log('    DEBUG tail=' + JSON.stringify(dbg.srcdocTail));
-}
-check('probe returned', !!probe);
-if (probe) {
-  check('cannot read parent DOM', String(probe.parentDom).startsWith('blocked'), probe.parentDom);
-  check('localStorage not writable', String(probe.storage).startsWith('blocked'), probe.storage);
-  // Note: a blob: frame echoes its creator's origin *string* even when
-  // sandboxed, so `location.origin` is NOT the security property here and is
-  // deliberately not asserted. What matters is whether that origin is usable to
-  // reach the host, which is what the checks below establish.
-  check('cannot reach host storage', probe.hostStorage === 'blocked', String(probe.hostStorage));
-}
+await page.waitForTimeout(2200);
+const probe = await page.innerText('#console-body');
+
+check('cannot read parent DOM', /parentDom=blocked/.test(probe),
+      (probe.match(/parentDom=\S+/) || ['(no result)'])[0]);
+check('cannot reach host storage', /hostStorage=blocked/.test(probe),
+      (probe.match(/hostStorage=\S+/) || ['(no result)'])[0]);
+check('own storage is not writable', /ownStorage=blocked/.test(probe),
+      (probe.match(/ownStorage=\S+/) || ['(no result)'])[0]);
+check('cannot read host cookies', /hostCookie=blocked/.test(probe),
+      (probe.match(/hostCookie=\S+/) || ['(no result)'])[0]);
+check('top navigation blocked', /topNav=blocked/.test(probe),
+      (probe.match(/topNav=\S+/) || ['(no result)'])[0]);
 
 console.log('\n--- 4. console capture works ---');
 await page.fill('#editor', `<html><body><script>

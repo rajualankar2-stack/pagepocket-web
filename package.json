@@ -5,8 +5,10 @@
   "description": "Paste HTML and run it instantly in a sandboxed frame.",
   "type": "module",
   "scripts": {
-    "dev": "python3 -m http.server 8899",
-    "test": "node test/test.mjs"
+    "start": "node test/csp-server.mjs",
+    "test": "node test/test.mjs",
+    "test:prod": "BASE_URL=https://pagepocket-web.vercel.app/ node test/test.mjs",
+    "deploy": "./deploy.sh"
   },
   "devDependencies": {
     "playwright": "^1.63.0"
