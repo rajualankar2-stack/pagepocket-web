@@ -6,9 +6,10 @@
   "type": "module",
   "scripts": {
     "start": "node test/csp-server.mjs",
-    "test": "node test/test.mjs",
+    "test": "node test/test.mjs && node test/features.mjs",
     "test:prod": "BASE_URL=https://pagepocket-web.vercel.app/ node test/test.mjs",
-    "deploy": "./deploy.sh"
+    "deploy": "./deploy.sh",
+    "test:features": "node test/features.mjs"
   },
   "devDependencies": {
     "playwright": "^1.63.0"

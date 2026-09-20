@@ -75,6 +75,16 @@
 
     <div class="frame-wrap" id="frame-wrap">
       <!--
+        Explicit exit control for full-screen mode.
+
+        Relying on "click anywhere to exit" is not enough: the previewed page
+        swallows clicks inside its own frame, so a user could enter full screen
+        and find no way back. This button is always reachable while immersive.
+      -->
+      <button id="btn-exit-immersive" class="btn exit-immersive" type="button"
+              title="Exit full screen (Esc)" aria-label="Exit full screen">✕ Exit</button>
+
+      <!--
         The sandbox is the entire security model of this app.
 
         `allow-scripts` without `allow-same-origin` gives the document a unique,

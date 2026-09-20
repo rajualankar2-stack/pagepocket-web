@@ -548,14 +548,51 @@ $('btn-reload').addEventListener('click', run);
 $('btn-clear-console').addEventListener('click', clearConsole);
 $('btn-samples').addEventListener('click', () => els.samplesDialog.showModal());
 $('btn-share').addEventListener('click', makeShareLink);
-$('btn-immersive').addEventListener('click', () => {
-  document.body.classList.toggle('immersive');
-  // Exiting immersive mode needs a visible affordance, so any click leaves it.
-  if (document.body.classList.contains('immersive')) {
-    document.addEventListener('click', function exit() {
-      document.body.classList.remove('immersive');
-      document.removeEventListener('click', exit);
-    }, { once: true });
+/* ------------------------------------------------------------------ *
+ * Full screen
+ *
+ * Exiting must not depend on a click reaching this document: the previewed
+ * page receives its own clicks, so "click anywhere to exit" leaves a user
+ * with no way back. There is an explicit button in the chrome, plus Escape.
+ * ------------------------------------------------------------------ */
+
+function setImmersive(on) {
+  document.body.classList.toggle('immersive', on);
+
+  // The browser's own full screen makes this feel native where permitted;
+  // failure is fine (iOS Safari refuses for non-video elements).
+  if (on) {
+    document.documentElement.requestFullscreen?.().catch(() => {});
+  } else if (document.fullscreenElement) {
+    document.exitFullscreen?.().catch(() => {});
+  }
+}
+
+// Capture phase, so this runs whether or not the page stops propagation.
+$('btn-immersive').addEventListener('click', (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  setImmersive(true);
+});
+
+$('btn-exit-immersive').addEventListener('click', (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  setImmersive(false);
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.body.classList.contains('immersive')) {
+    setImmersive(false);
+  }
+});
+
+// Keep the button in sync if the user leaves browser full screen another way.
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement && document.body.classList.contains('immersive')) {
+    // Only auto-exit if the browser was actually driving full screen.
+    // (On iOS requestFullscreen is unavailable, so this never fires there.)
+    if (document.fullscreenEnabled) setImmersive(false);
   }
 });
 
