@@ -1,4 +1,11 @@
-import { chromium } from 'playwright';
+import { chromium, webkit, devices } from 'playwright';
+
+// ENGINE=webkit runs the same checks on Safari's engine. That matters: WebKit
+// enforces several things Chromium does not, and iOS users run WebKit.
+const ENGINE = process.env.ENGINE || 'chromium';
+const launch = () => (ENGINE === 'webkit' ? webkit : chromium).launch();
+const contextOptions = () => (ENGINE === 'webkit' && devices['iPhone 14 Pro']
+  ? { ...devices['iPhone 14 Pro'] } : {});
 
 const BASE = process.env.BASE_URL || 'http://127.0.0.1:8898/';
 let pass = 0, fail = 0;
@@ -7,8 +14,9 @@ const check = (name, ok, extra='') => {
   ok ? pass++ : fail++;
 };
 
-const browser = await chromium.launch();
-const page = await browser.newPage();
+const browser = await launch();
+const ctx = await browser.newContext(contextOptions());
+const page = await ctx.newPage();
 const errors = [];
 page.on('pageerror', e => errors.push(String(e)));
 page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });

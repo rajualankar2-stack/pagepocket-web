@@ -269,7 +269,20 @@ kbd {
 body.immersive .topbar,
 body.immersive .editor-pane,
 body.immersive .console { display: none; }
-body.immersive .layout { grid-template-columns: 1fr; }
+
+/*
+ * Full screen must claim the WHOLE viewport.
+ *
+ * The narrow-screen media query below sets `grid-template-rows: 1fr 1fr` to
+ * stack the editor above the output. Hiding the editor is not enough on its
+ * own: its grid row still reserves half the height, so the preview filled only
+ * ~45% of the screen on a phone. Both axes have to be reset here, and the
+ * media query later in the file needs to not undo it.
+ */
+body.immersive .layout {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+}
 body.immersive .output-pane { border: 0; }
 
 /* ---------- Console ---------- */
@@ -408,6 +421,14 @@ body.immersive .output-pane { border: 0; }
   .editor-pane { border-right: 0; border-bottom: 1px solid var(--edge); }
   .brand-tag { display: none; }
   .console { height: 150px; }
+
+  /*
+   * Re-assert full screen here. This media query appears after the immersive
+   * rules in source order, so without this the stacked two-row layout above
+   * would win on a phone and the preview would fill only half the screen.
+   */
+  body.immersive .layout { grid-template-rows: 1fr; }
+  body.immersive .console { height: 0; }
 }
 
 @media (max-width: 560px) {

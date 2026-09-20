@@ -118,8 +118,93 @@ const BRIDGE = (token) => `
     };
   });
 
+  // WebKit reports uncaught errors from a blob:/cross-origin frame as the
+  // opaque string "Script error." with no message, line or stack — which is
+  // exactly the information someone debugging their pasted HTML needs. Wrap
+  // the common async entry points so the real error is captured before it
+  // crosses the boundary.
+  function describe(err) {
+    if (!err) return 'Unknown error';
+    if (err instanceof Error || (err && err.message)) {
+      var text = (err.name || 'Error') + ': ' + (err.message || '');
+      if (err.stack) {
+        var line = String(err.stack).split('\\n')[1];
+        if (line) text += '\\n' + line.trim();
+      }
+      return text;
+    }
+    return stringify(err);
+  }
+
+  function guard(name, fn) {
+    return function () {
+      var args = Array.prototype.slice.call(arguments);
+      // Callbacks are wrapped so a throw inside them keeps its message.
+      for (var i = 0; i < args.length; i++) {
+        if (typeof args[i] === 'function') {
+          var original = args[i];
+          args[i] = function () {
+            try { return original.apply(this, arguments); }
+            catch (e) { send('error', ['Uncaught in ' + name + ' callback — ' + describe(e)]); throw e; }
+          };
+        }
+      }
+      try { return fn.apply(this, args); }
+      catch (e) { send('error', ['Uncaught — ' + describe(e)]); throw e; }
+    };
+  }
+
+  // Timer and frame callbacks are where most stray throws happen.
+  var _setTimeout = window.setTimeout;
+  window.setTimeout = guard('setTimeout', function (fn, ms) {
+    var rest = Array.prototype.slice.call(arguments, 2);
+    return _setTimeout.apply(window, [typeof fn === 'function' ? function () {
+      try { fn.apply(this, arguments); }
+      catch (e) { send('error', ['Uncaught in setTimeout — ' + describe(e)]); }
+    } : fn, ms].concat(rest));
+  });
+
+  var _setInterval = window.setInterval;
+  window.setInterval = guard('setInterval', function (fn, ms) {
+    var rest = Array.prototype.slice.call(arguments, 2);
+    return _setInterval.apply(window, [typeof fn === 'function' ? function () {
+      try { fn.apply(this, arguments); }
+      catch (e) { send('error', ['Uncaught in setInterval — ' + describe(e)]); }
+    } : fn, ms].concat(rest));
+  });
+
+  var _raf = window.requestAnimationFrame;
+  if (_raf) {
+    window.requestAnimationFrame = function (fn) {
+      return _raf.call(window, function (t) {
+        try { fn(t); }
+        catch (e) { send('error', ['Uncaught in animation frame — ' + describe(e)]); }
+      });
+    };
+  }
+
+  // Event listeners: a throw in a handler otherwise surfaces as "Script error."
+  var _addEventListener = EventTarget.prototype.addEventListener;
+  EventTarget.prototype.addEventListener = function (type, listener, options) {
+    if (typeof listener === 'function') {
+      var wrapped = function (event) {
+        try { return listener.call(this, event); }
+        catch (e) { send('error', ['Uncaught in "' + type + '" handler — ' + describe(e)]); }
+      };
+      return _addEventListener.call(this, type, wrapped, options);
+    }
+    return _addEventListener.call(this, type, listener, options);
+  };
+
   window.addEventListener('error', function (e) {
+    // Prefer the real error object when the frame exposes one.
+    if (e.error) { send('error', [describe(e.error)]); return; }
     var msg = e.message || 'Script error';
+    // "Script error." is WebKit withholding detail; say so rather than
+    // presenting it as the page's actual message.
+    if (msg === 'Script error.' || msg === 'Script error') {
+      msg = 'Script error (the browser withheld details for this cross-origin frame)';
+    }
     if (e.filename) msg += ' (' + e.filename + ':' + e.lineno + ')';
     send('error', [msg]);
   });
@@ -163,13 +248,20 @@ function prepareDocument(markup, token) {
 
   // The bridge has to run before the author's scripts, so it is inserted as the
   // first thing in <head> when there is one, and prepended otherwise.
-  if (bridge && /<head[\s>]/i.test(body)) {
-    return body.replace(/<head([^>]*)>/i, (m) => m + bridge);
+  // Always declare UTF-8. Markup without a <meta charset> would otherwise be
+  // decoded as Latin-1, and any non-ASCII in the bridge or the page would be
+  // corrupted on screen.
+  const charset = '<meta charset="utf-8">';
+  const inject = bridge + charset;
+
+  if (/<head[\s>]/i.test(body)) {
+    // Insert immediately after the opening <head>, before the author's content.
+    return body.replace(/<head([^>]*)>/i, (m) => (bridge ? m + inject : m));
   }
-  if (bridge && /<html[\s>]/i.test(body)) {
-    return body.replace(/<html([^>]*)>/i, (m) => m + '<head>' + bridge + '</head>');
+  if (/<html[\s>]/i.test(body)) {
+    return body.replace(/<html([^>]*)>/i, (m) => (bridge ? m + '<head>' + inject + '</head>' : m));
   }
-  return bridge + body;
+  return inject + body;
 }
 
 /* ------------------------------------------------------------------ *
@@ -238,7 +330,11 @@ function run() {
   //
   // The previous URL is revoked so an auto-run loop does not leak blobs.
   if (state.currentBlobURL) URL.revokeObjectURL(state.currentBlobURL);
-  state.currentBlobURL = URL.createObjectURL(new Blob([doc], { type: 'text/html' }));
+  // The charset is not optional: without it WebKit decodes the document as
+  // Latin-1, mangling every non-ASCII character the bridge emits (em dashes in
+  // its own messages, for one).
+  state.currentBlobURL = URL.createObjectURL(
+    new Blob([doc], { type: 'text/html;charset=utf-8' }));
   els.frame.src = state.currentBlobURL;
 
   els.outputMeta.textContent = new Blob([doc]).size.toLocaleString() + ' B';

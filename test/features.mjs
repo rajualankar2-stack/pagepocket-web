@@ -5,7 +5,14 @@
  * report of "so many bugs" — the goal is to find real breakage, so this asserts
  * on observable outcomes rather than merely that a click did not throw.
  */
-import { chromium } from 'playwright';
+import { chromium, webkit, devices } from 'playwright';
+
+// ENGINE=webkit runs the same checks on Safari's engine. That matters: WebKit
+// enforces several things Chromium does not, and iOS users run WebKit.
+const ENGINE = process.env.ENGINE || 'chromium';
+const launch = () => (ENGINE === 'webkit' ? webkit : chromium).launch();
+const contextOptions = () => (ENGINE === 'webkit' && devices['iPhone 14 Pro']
+  ? { ...devices['iPhone 14 Pro'] } : {});
 
 const BASE = process.env.BASE_URL || 'http://127.0.0.1:8898/';
 
@@ -17,8 +24,9 @@ const check = (name, ok, extra = '') => {
 };
 const section = (t) => console.log('\n=== ' + t + ' ===');
 
-const browser = await chromium.launch();
-const ctx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+const browser = await launch();
+const ctx = await browser.newContext({ ...contextOptions(), // WebKit rejects 'clipboard-write'; only Chromium needs it declared.
+      permissions: ENGINE === 'webkit' ? ['clipboard-read'] : ['clipboard-read', 'clipboard-write'] });
 const page = await ctx.newPage();
 
 const pageErrors = [];
