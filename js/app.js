@@ -40,6 +40,7 @@ const els = {
   optConsole: $('opt-console'),
   optWrap: $('opt-wrap'),
   optAutorun: $('opt-autorun'),
+  optAutoFull: $('opt-autofull'),
 };
 
 const state = {
@@ -301,7 +302,16 @@ function appendConsole(level, text) {
   els.consoleBody.scrollTop = els.consoleBody.scrollHeight;
 }
 
-function run() {
+/**
+ * Runs the editor's markup.
+ *
+ * `autoFullScreen` is passed by explicit actions — pressing Run, opening a
+ * file, dropping one in, picking a sample, following a share link — so those
+ * land straight in full screen. It is deliberately NOT passed by auto-run:
+ * that fires while typing, and entering full screen would hide the editor out
+ * from under the caret.
+ */
+function run({ autoFullScreen = false } = {}) {
   const markup = els.editor.value;
   if (!markup.trim()) {
     toast('Nothing to run — paste some HTML first.');
@@ -347,6 +357,13 @@ function run() {
       Math.round(performance.now() - started) + ' ms · ' + els.outputMeta.textContent;
   };
   state.settleTimer = setTimeout(settle, 1200);
+
+  // Go full screen only after the explicit actions, and only when the option is
+  // on. Deferred a frame so the page has painted rather than flashing an empty
+  // frame during the transition.
+  if (autoFullScreen && els.optAutoFull.checked) {
+    requestAnimationFrame(() => setImmersive(true));
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -599,7 +616,7 @@ function renderSamples() {
       els.editor.value = sample.markup.replace(/<\\\/script>/g, '</scr' + 'ipt>');
       updateEditorMeta();
       els.samplesDialog.close();
-      run();
+      run({ autoFullScreen: true });
     });
 
     li.append(button);
@@ -615,7 +632,10 @@ els.editor.addEventListener('input', () => {
   updateEditorMeta();
   if (els.optAutorun.checked) {
     clearTimeout(state.autoRunTimer);
-    state.autoRunTimer = setTimeout(run, 700);
+    // Explicit wrapper: setTimeout would pass the timer handle as run()'s first
+    // argument. Auto-run must also never trigger full screen, since it fires
+    // while typing and would hide the editor mid-keystroke.
+    state.autoRunTimer = setTimeout(() => run(), 700);
   }
 });
 
@@ -635,12 +655,12 @@ els.editor.addEventListener('keydown', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); run(); }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); run({ autoFullScreen: true }); }
   if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); downloadHtml(); }
 });
 
-$('btn-run').addEventListener('click', run);
-$('btn-reload').addEventListener('click', run);
+$('btn-run').addEventListener('click', () => run({ autoFullScreen: true }));
+$('btn-reload').addEventListener('click', () => run({ autoFullScreen: true }));
 $('btn-clear-console').addEventListener('click', clearConsole);
 $('btn-samples').addEventListener('click', () => els.samplesDialog.showModal());
 $('btn-share').addEventListener('click', makeShareLink);
@@ -721,7 +741,7 @@ $('btn-open').addEventListener('click', () => {
     els.editor.value = await file.text();
     updateEditorMeta();
     toast('Loaded ' + file.name);
-    run();
+    run({ autoFullScreen: true });
   });
   input.click();
 });
@@ -761,7 +781,7 @@ document.addEventListener('drop', async (e) => {
   els.editor.value = await file.text();
   updateEditorMeta();
   toast('Loaded ' + file.name);
-  run();
+  run({ autoFullScreen: true });
 });
 
 /* ---- Boot ---- */
@@ -769,11 +789,43 @@ document.addEventListener('drop', async (e) => {
 renderSamples();
 updateEditorMeta();
 
-loadFromFragment().then((loaded) => {
+/**
+ * Boots from a share link.
+ *
+ * Reading `location.hash` once at module evaluation is NOT reliable: WebKit
+ * (iOS Safari) applies the fragment *after* the load event, so at DOMContentLoaded
+ * the hash is still empty and a share link silently does nothing — the markup
+ * never renders. Observed directly: hash length 0 at init, DOMContentLoaded and
+ * load, then 43 shortly after.
+ *
+ * So retry briefly, and also listen for `hashchange` to cover the case where the
+ * fragment arrives later still.
+ */
+async function bootFromFragment() {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    if (location.hash.startsWith('#h=')) {
+      if (await loadFromFragment()) {
+        run({ autoFullScreen: true });
+        return true;
+      }
+      return false;   // the hash is present but unreadable; do not keep retrying
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return false;
+}
+
+bootFromFragment().then((loaded) => {
   if (!loaded && !els.editor.value.trim()) {
     setStatus('idle', 'idle');
   }
-  if (loaded) run();
+}).catch((e) => console.error('[boot] fragment boot failed:', e && e.message));
+
+// A fragment can also arrive by navigating within the page.
+window.addEventListener('hashchange', () => {
+  if (location.hash.startsWith('#h=')) {
+    loadFromFragment().then((loaded) => { if (loaded) run({ autoFullScreen: true }); });
+  }
 });
 
 // Reflect the fragment as the user edits, so a reload keeps their work.

@@ -41,6 +41,23 @@ const setEditor = async (html) => {
     ed.dispatchEvent(new Event('input', { bubbles: true }));
   }, html);
 };
+
+/** Leaves full screen if a previous run entered it, so the toolbar is clickable. */
+const exitImmersiveIfNeeded = () => page.evaluate(() => {
+  if (document.body.classList.contains('immersive')) {
+    document.getElementById('btn-exit-immersive')?.click();
+  }
+});
+
+/** Runs the editor and settles, leaving full screen so the next step can click. */
+const runAndSettle = async (ms = 1200) => {
+  await exitImmersiveIfNeeded();
+  await page.click('#btn-run');
+  await page.waitForTimeout(ms);
+  await exitImmersiveIfNeeded();
+  await page.waitForTimeout(250);
+};
+
 const closeDialogs = () => page.evaluate(() => {
   document.querySelectorAll('dialog[open]').forEach(d => d.close());
 });
@@ -61,8 +78,7 @@ check('console starts empty', (await consoleText()).includes('Messages from the 
 section('2. Running simple markup');
 
 await setEditor('<html><body><h1>HELLO</h1></body></html>');
-await page.click('#btn-run');
-await page.waitForTimeout(1200);
+await runAndSettle(1200);
 check('renders h1', (await page.frameLocator('#preview').locator('h1').innerText()) === 'HELLO');
 check('status becomes ok', (await page.innerText('#status')) === 'ok', await page.innerText('#status'));
 check('placeholder hidden after run', (await page.locator('#frame-empty').getAttribute('class') || '').includes('hidden'));
@@ -72,15 +88,13 @@ check('output size shown', (await page.innerText('#output-meta')).includes('B'),
 section('3. Fragment wrapping (Wrap fragments option)');
 
 await setEditor('<p>bare</p>');
-await page.click('#btn-run');
-await page.waitForTimeout(900);
+await runAndSettle(900);
 const wrappedMeta = await page.innerText('#output-meta');
 check('fragment renders', (await page.frameLocator('#preview').locator('p').innerText()) === 'bare');
 check('fragment gets a viewport meta', await page.frameLocator('#preview').locator('meta[name=viewport]').count() > 0);
 
 await page.uncheck('#opt-wrap');
-await page.click('#btn-run');
-await page.waitForTimeout(900);
+await runAndSettle(900);
 const noWrapMeta = await page.innerText('#output-meta');
 check('unwrapped is smaller than wrapped', sizeOf(noWrapMeta) < sizeOf(wrappedMeta),
       `${noWrapMeta} vs ${wrappedMeta}`);
@@ -99,8 +113,7 @@ await setEditor(`<html><body><script>
   console.error('L-four');
   console.debug('L-five');
 </script></body></html>`);
-await page.click('#btn-run');
-await page.waitForTimeout(1300);
+await runAndSettle(1300);
 const c = await consoleText();
 check('log captured', c.includes('L-one') && c.includes('{"a":1}'), '');
 check('info captured', c.includes('L-two'));
@@ -117,8 +130,7 @@ await setEditor(`<html><body><script>
   setTimeout(() => { throw new Error('ASYNC-BOOM'); }, 10);
   Promise.reject(new Error('REJECTED'));
 </script></body></html>`);
-await page.click('#btn-run');
-await page.waitForTimeout(1500);
+await runAndSettle(1500);
 const e = await consoleText();
 check('uncaught error captured', e.includes('ASYNC-BOOM'), '');
 check('unhandled rejection captured', e.includes('REJECTED'));
@@ -128,8 +140,7 @@ section('6. Console option off means no capture');
 
 await page.uncheck('#opt-console');
 await setEditor('<html><body><script>console.log("SHOULD-NOT-APPEAR")</script></body></html>');
-await page.click('#btn-run');
-await page.waitForTimeout(1200);
+await runAndSettle(1200);
 const offText = await consoleText();
 check('no capture when disabled', !offText.includes('SHOULD-NOT-APPEAR'), offText.slice(0, 60));
 check('page still renders with console off',
@@ -140,8 +151,7 @@ await page.check('#opt-console');
 section('7. Clear console');
 
 await setEditor('<html><body><script>console.log("TO-CLEAR")</script></body></html>');
-await page.click('#btn-run');
-await page.waitForTimeout(1100);
+await runAndSettle(1100);
 await page.click('#btn-clear-console');
 await page.waitForTimeout(300);
 check('console cleared', !(await consoleText()).includes('TO-CLEAR'));
@@ -151,11 +161,9 @@ check('count reset to 0', (await page.innerText('#console-count')) === '0');
 section('8. Stale console messages do not leak between runs');
 
 await setEditor('<html><body><script>console.log("RUN-A")</script></body></html>');
-await page.click('#btn-run');
-await page.waitForTimeout(1100);
+await runAndSettle(1100);
 await setEditor('<html><body><script>console.log("RUN-B")</script></body></html>');
-await page.click('#btn-run');
-await page.waitForTimeout(1300);
+await runAndSettle(1300);
 const runs = await consoleText();
 check('previous run cleared on new run', !runs.includes('RUN-A'), runs.replace(/\n/g, ' ').slice(0, 80));
 check('current run captured', runs.includes('RUN-B'));
@@ -168,8 +176,7 @@ await page.evaluate(() => {
   ed.value = '';
   ed.dispatchEvent(new Event('input', { bubbles: true }));
 });
-await page.click('#btn-run');
-await page.waitForTimeout(500);
+await runAndSettle(500);
 check('empty run shows a toast', (await page.innerText('#toast')).length > 0, await page.innerText('#toast'));
 
 await page.evaluate(() => {
@@ -177,18 +184,21 @@ await page.evaluate(() => {
   ed.value = '   \n\t  ';
   ed.dispatchEvent(new Event('input', { bubbles: true }));
 });
-await page.click('#btn-run');
-await page.waitForTimeout(400);
+await runAndSettle(400);
 check('whitespace-only run is refused', (await page.innerText('#toast')).length > 0);
 
 /* ---------------------------------------------------------------- */
 section('10. Keyboard shortcuts');
 
 await setEditor('<html><body><h2>KEYBOARD</h2></body></html>');
+await exitImmersiveIfNeeded();
 await page.click('#editor');
 await page.keyboard.press('Meta+Enter');
 await page.waitForTimeout(1100);
 check('Cmd+Enter runs', (await page.frameLocator('#preview').locator('h2').innerText()) === 'KEYBOARD');
+check('Cmd+Enter enters full screen', await page.evaluate(() => document.body.classList.contains('immersive')));
+await exitImmersiveIfNeeded();
+await page.waitForTimeout(300);
 
 // Tab inserts spaces rather than moving focus
 await page.evaluate(() => {
@@ -235,8 +245,7 @@ check('counts UTF-8 bytes correctly', (await page.innerText('#editor-meta')) ===
 section('13. Reload button');
 
 await setEditor('<html><body><h3>RELOADED</h3></body></html>');
-await page.click('#btn-run');
-await page.waitForTimeout(1000);
+await runAndSettle(1000);
 await page.click('#btn-reload');
 await page.waitForTimeout(1100);
 check('reload re-renders', (await page.frameLocator('#preview').locator('h3').innerText()) === 'RELOADED');
@@ -244,6 +253,8 @@ check('reload re-renders', (await page.frameLocator('#preview').locator('h3').in
 /* ---------------------------------------------------------------- */
 section('14. Samples dialog');
 
+await exitImmersiveIfNeeded();
+await page.waitForTimeout(200);
 await page.click('#btn-samples');
 await page.waitForTimeout(400);
 check('samples dialog opens', await page.locator('#samples-dialog').evaluate(d => d.open));
@@ -259,6 +270,9 @@ for (let i = 0; i < sampleCount; i++) {
   await page.waitForTimeout(350);
   await page.locator('#sample-list .sample').nth(i).click();
   await page.waitForTimeout(1700);
+  // Loading a sample enters full screen, so step back out before the next one.
+  await exitImmersiveIfNeeded();
+  await page.waitForTimeout(200);
   // The handler must close the dialog; if it does not, the next click is
   // blocked, which is exactly the kind of bug this run is looking for.
   const stillOpen = await page.locator('#samples-dialog').evaluate(d => d.open);
@@ -303,8 +317,7 @@ if (download) {
 section('16. Full screen (immersive)');
 
 await setEditor('<html><body><h1>IMMERSIVE</h1></body></html>');
-await page.click('#btn-run');
-await page.waitForTimeout(1000);
+await runAndSettle(1000);
 
 await page.click('#btn-immersive');
 await page.waitForTimeout(400);
@@ -406,10 +419,14 @@ check('dropped file loads', (await page.inputValue('#editor')).includes('DROPPED
       (await page.inputValue('#editor')).slice(0, 40));
 check('dropped file renders',
       (await page.frameLocator('#preview').locator('h1').innerText().catch(() => '')) === 'DROPPED');
+check('dropping a file enters full screen', await page.evaluate(() => document.body.classList.contains('immersive')));
 
 /* ---------------------------------------------------------------- */
 section('20. Auto-run');
 
+// Open-file and drag-drop both enter full screen, which hides the options bar.
+await exitImmersiveIfNeeded();
+await page.waitForTimeout(300);
 await page.check('#opt-autorun');
 await setEditor('<html><body><h1>AUTO-ONE</h1></body></html>');
 await page.waitForTimeout(1600);
@@ -419,6 +436,9 @@ await page.uncheck('#opt-autorun');
 
 /* ---------------------------------------------------------------- */
 section('21. Edge-case markup');
+
+await exitImmersiveIfNeeded();
+await page.waitForTimeout(200);
 
 const edgeCases = [
   ['empty body', '<html><body></body></html>'],
@@ -435,8 +455,7 @@ const edgeCases = [
 for (const [label, html] of edgeCases) {
   const before = pageErrors.length;
   await setEditor(html);
-  await page.click('#btn-run');
-  await page.waitForTimeout(800);
+  await runAndSettle(800);
   const newErrs = pageErrors.length - before;
   const rendered = await page.frameLocator('#preview').locator('body').count() > 0;
   check(`edge case: ${label}`, rendered && newErrs === 0, newErrs ? pageErrors.slice(-1)[0] : '');
@@ -450,16 +469,14 @@ check('allow-same-origin never set', !sandbox.includes('allow-same-origin'), san
 check('allow-scripts set', sandbox.includes('allow-scripts'));
 
 await setEditor('<html><body><script>try{parent.document.title;console.log("P=LEAK")}catch(e){console.log("P=blocked")}</script></body></html>');
-await page.click('#btn-run');
-await page.waitForTimeout(1300);
+await runAndSettle(1300);
 check('parent DOM still blocked', (await consoleText()).includes('P=blocked'));
 
 /* ---------------------------------------------------------------- */
 section('23. Frame uses a blob URL, not srcdoc');
 
 await setEditor('<html><body>x</body></html>');
-await page.click('#btn-run');
-await page.waitForTimeout(900);
+await runAndSettle(900);
 const frameInfo = await page.evaluate(() => {
   const f = document.getElementById('preview');
   return { src: f.src, srcdoc: f.srcdoc };

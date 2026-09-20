@@ -22,6 +22,23 @@ page.on('pageerror', e => errors.push(String(e)));
 page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
 
 await page.goto(BASE, { waitUntil: 'networkidle' });
+
+/** Leaves full screen if a previous run entered it, so the toolbar is clickable. */
+const exitImmersiveIfNeeded = () => page.evaluate(() => {
+  if (document.body.classList.contains('immersive')) {
+    document.getElementById('btn-exit-immersive')?.click();
+  }
+});
+
+/** Runs the editor and settles, leaving full screen so the next step can click. */
+const runAndSettle = async (ms = 1200) => {
+  await exitImmersiveIfNeeded();
+  await page.click('#btn-run');
+  await page.waitForTimeout(ms);
+  await exitImmersiveIfNeeded();
+  await page.waitForTimeout(250);
+};
+
 console.log('--- 1. the app loads cleanly ---');
 check('no page errors on load', errors.length === 0, errors.slice(0,3).join(' | '));
 
@@ -55,8 +72,7 @@ await page.evaluate(() => {
     + '</scr' + 'ipt></body></html>';
   ed.dispatchEvent(new Event('input', { bubbles: true }));
 });
-await page.click('#btn-run');
-await page.waitForTimeout(2200);
+await runAndSettle(2200);
 const probe = await page.innerText('#console-body');
 
 check('cannot read parent DOM', /parentDom=blocked/.test(probe),
@@ -71,33 +87,34 @@ check('top navigation blocked', /topNav=blocked/.test(probe),
       (probe.match(/topNav=\S+/) || ['(no result)'])[0]);
 
 console.log('\n--- 4. console capture works ---');
+await exitImmersiveIfNeeded();
 await page.fill('#editor', `<html><body><script>
   console.log('hello from page');
   console.warn('a warning');
   console.error('an error');
 <\/script></body></html>`);
-await page.click('#btn-run');
-await page.waitForTimeout(1200);
+await runAndSettle(1200);
 const consoleText = await page.innerText('#console-body');
 check('captured console.log', consoleText.includes('hello from page'));
 check('captured console.warn', consoleText.includes('a warning'));
 check('captured console.error', consoleText.includes('an error'));
 
 console.log('\n--- 5. rendering works at all ---');
+await exitImmersiveIfNeeded();
 await page.fill('#editor', '<html><body><h1>RENDER-MARKER</h1></body></html>');
-await page.click('#btn-run');
-await page.waitForTimeout(900);
+await runAndSettle(900);
 const frameText = await page.frameLocator('#preview').locator('h1').innerText();
 check('markup renders in the frame', frameText.includes('RENDER-MARKER'), frameText);
 
 console.log('\n--- 6. fragment auto-wrapping ---');
+await exitImmersiveIfNeeded();
 await page.fill('#editor', '<p>bare fragment</p>');
-await page.click('#btn-run');
-await page.waitForTimeout(900);
+await runAndSettle(900);
 const wrapped = await page.frameLocator('#preview').locator('p').innerText();
 check('a fragment still renders as a page', wrapped.includes('bare fragment'));
 
 console.log('\n--- 7. share link round-trip ---');
+await exitImmersiveIfNeeded();
 await page.fill('#editor', '<html><body><h1>SHARE-ME</h1></body></html>');
 await page.click('#btn-share');
 await page.waitForTimeout(600);
@@ -135,6 +152,7 @@ console.log('\n--- 9. inline scripts run under the real CSP ---');
 // `script-src` without 'unsafe-inline' renders markup but executes none of it,
 // which is exactly how a broken build reached production once. This asserts the
 // capability directly so it cannot regress silently.
+await exitImmersiveIfNeeded();
 await page.fill('#editor', '<html><body><h1>csp</h1><scr' + 'ipt>parent.postMessage({__inline:true},"*")</scr' + 'ipt></body></html>');
 await page.click('#btn-run');
 const inlineRan = await page.evaluate(() => new Promise(res => {
